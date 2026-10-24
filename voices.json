@@ -1,0 +1,34 @@
+[
+  {
+    "id": "bich_ngoc",
+    "name": "Bích Ngọc",
+    "label": "Bích Ngọc (Nữ - Miền Bắc)",
+    "gender": "female",
+    "region": "north",
+    "aliases": ["Bich Ngoc", "Bích Ngọc"]
+  },
+  {
+    "id": "pham_tuyen",
+    "name": "Phạm Tuyên",
+    "label": "Phạm Tuyên (Nam - Miền Bắc)",
+    "gender": "male",
+    "region": "north",
+    "aliases": ["Pham Tuyen", "Phạm Tuyên"]
+  },
+  {
+    "id": "thuc_doan",
+    "name": "Thục Đoan",
+    "label": "Thục Đoan (Nữ - Miền Nam)",
+    "gender": "female",
+    "region": "south",
+    "aliases": ["Thuc Doan", "Thục Đoan", "Thục Đoan (Nữ - Miền Nam)"]
+  },
+  {
+    "id": "xuan_vinh",
+    "name": "Xuân Vĩnh",
+    "label": "Xuân Vĩnh (Nam - Miền Nam)",
+    "gender": "male",
+    "region": "south",
+    "aliases": ["Xuan Vinh", "Xuân Vĩnh"]
+  }
+]

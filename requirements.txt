@@ -1,0 +1,8 @@
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+pydantic>=2,<3
+psutil>=5.9,<8
+numpy>=1.24,<3
+requests>=2.31,<3
+vieneu>=1.1.4
+llama-cpp-python>=0.3.0

@@ -1,0 +1,26 @@
+services:
+  vieneu-tts-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8004}:${PORT:-8004}"
+    environment:
+      VIENEU_MODEL_ID: ${VIENEU_MODEL_ID:-pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF}
+      VIENEU_MODEL_FILE: ${VIENEU_MODEL_FILE:-vieneu-tts-v2-turbo.gguf}
+      VIENEU_MODE: ${VIENEU_MODE:-turbo}
+      VIENEU_MODEL_DIR: ${VIENEU_MODEL_DIR:-/models}
+      HF_HOME: ${HF_HOME:-/models}
+      HUGGINGFACE_HUB_CACHE: ${HUGGINGFACE_HUB_CACHE:-/models/hub}
+      VIENEU_DEFAULT_VOICE: ${VIENEU_DEFAULT_VOICE:-Thục Đoan (Nữ - Miền Nam)}
+      VIENEU_DEVICE: ${VIENEU_DEVICE:-cpu}
+      VIENEU_N_GPU_LAYERS: "${VIENEU_N_GPU_LAYERS:-0}"
+      VIENEU_THREADS: "${VIENEU_THREADS:-4}"
+      VIENEU_N_CTX: "${VIENEU_N_CTX:-2048}"
+      VIENEU_PRELOAD: "${VIENEU_PRELOAD:-true}"
+      VIENEU_FAKE: "${VIENEU_FAKE:-false}"
+      PORT: "${PORT:-8004}"
+      # Set TTS_API_KEY and use the same value in xiaozhi-server TTS config if auth is needed.
+      TTS_API_KEY: "${TTS_API_KEY:-}"
+    volumes:
+      - ./models:/models
+      - ./benchmarks:/app/benchmarks

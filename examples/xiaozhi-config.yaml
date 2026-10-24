@@ -1,0 +1,15 @@
+TTS:
+  VieNeuOpenAI:
+    type: openai
+    api_key: local
+    api_url: http://vieneu-tts-server:8004/v1/audio/speech
+    model: vieneu-v2-turbo
+    voice: Thục Đoan (Nữ - Miền Nam)
+    format: wav
+    output_dir: tmp/
+
+  VieNeuIndexStream:
+    type: index_stream
+    api_url: http://vieneu-tts-server:8004/tts
+    voice: Thục Đoan (Nữ - Miền Nam)
+    audio_format: pcm

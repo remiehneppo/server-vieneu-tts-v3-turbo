@@ -1,0 +1,12 @@
+services:
+  vieneu-tts-server:
+    build:
+      context: .
+      args:
+        BASE_IMAGE: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+        CMAKE_ARGS: -DGGML_CUDA=on
+        FORCE_CMAKE: "1"
+    gpus: all
+    environment:
+      VIENEU_DEVICE: cuda
+      VIENEU_N_GPU_LAYERS: "-1"
