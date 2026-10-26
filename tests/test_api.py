@@ -134,9 +134,8 @@ def test_real_engine_uses_vieneu_turbo_constructor(monkeypatch, tmp_path):
     engine = module.VieNeuEngine()
 
     assert isinstance(engine.tts, FakeVieneuClient)
-    assert captured["mode"] == "turbo"
-    assert captured["backbone_repo"] == "pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF"
-    assert captured["backbone_filename"] == "vieneu-tts-v2-turbo.gguf"
+    assert captured["mode"] == "v3turbo"
+    assert captured["backbone_repo"] == "pnnbao-ump/VieNeu-TTS-v3-Turbo"
     assert captured["device"] == "cpu"
 
 
@@ -222,3 +221,22 @@ def test_synthesis_requests_are_serialized(monkeypatch):
 
     assert [response.status_code for response in responses] == [200, 200]
     assert detecting_engine.max_active == 1
+
+def test_openai_speech_supports_ref_audio_clone(monkeypatch, tmp_path):
+    module = load_app(monkeypatch)
+    client = TestClient(module.app)
+    ref_wav = tmp_path / "ref.wav"
+    ref_wav.write_bytes(module.pcm_to_wav(b"\x00" * 480))
+
+    response = client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "vieneu-v3-turbo",
+            "input": "Thử nghiệm clone với file mẫu",
+            "ref_audio": str(ref_wav),
+            "response_format": "wav",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content.startswith(b"RIFF")

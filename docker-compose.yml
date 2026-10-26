@@ -3,11 +3,11 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "${PORT:-8004}:${PORT:-8004}"
+      - "${HOST:-0.0.0.0}:${PORT:-8004}:${PORT:-8004}"
     environment:
-      VIENEU_MODEL_ID: ${VIENEU_MODEL_ID:-pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF}
-      VIENEU_MODEL_FILE: ${VIENEU_MODEL_FILE:-vieneu-tts-v2-turbo.gguf}
-      VIENEU_MODE: ${VIENEU_MODE:-turbo}
+      VIENEU_MODEL_ID: ${VIENEU_MODEL_ID:-pnnbao-ump/VieNeu-TTS-v3-Turbo}
+      VIENEU_MODEL_FILE: ${VIENEU_MODEL_FILE:-}
+      VIENEU_MODE: ${VIENEU_MODE:-v3turbo}
       VIENEU_MODEL_DIR: ${VIENEU_MODEL_DIR:-/models}
       HF_HOME: ${HF_HOME:-/models}
       HUGGINGFACE_HUB_CACHE: ${HUGGINGFACE_HUB_CACHE:-/models/hub}
@@ -22,5 +22,6 @@ services:
       # Set TTS_API_KEY and use the same value in xiaozhi-server TTS config if auth is needed.
       TTS_API_KEY: "${TTS_API_KEY:-}"
     volumes:
+      - ./app.py:/app/app.py:ro
       - ./models:/models
       - ./benchmarks:/app/benchmarks

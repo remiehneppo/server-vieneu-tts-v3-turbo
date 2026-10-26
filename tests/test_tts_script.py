@@ -79,7 +79,7 @@ def test_synthesize_wav_posts_openai_payload_with_auth(monkeypatch):
     assert captured["headers"]["Content-type"] == "application/json"
     assert captured["headers"]["Authorization"] == "Bearer secret"
     assert captured["payload"] == {
-        "model": "vieneu-v2-turbo",
+        "model": "vieneu-v3-turbo",
         "input": "Xin chào",
         "voice": "Thục Đoan",
         "response_format": "wav",

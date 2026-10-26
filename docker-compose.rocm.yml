@@ -1,0 +1,19 @@
+services:
+  vieneu-tts-server:
+    build:
+      context: .
+      args:
+        INSTALL_TORCH_CUDA: "1"
+        TORCH_INDEX_URL: "https://download.pytorch.org/whl/rocm6.0"
+        TORCH_PACKAGES: "torch==2.4.1+rocm6.0 torchaudio==2.4.1+rocm6.0"
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - "110"
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      VIENEU_DEVICE: cuda
+      VIENEU_FUSED_FRAME: "0"

@@ -3,7 +3,7 @@ TTS:
     type: openai
     api_key: local
     api_url: http://vieneu-tts-server:8004/v1/audio/speech
-    model: vieneu-v2-turbo
+    model: vieneu-v3-turbo
     voice: Thục Đoan (Nữ - Miền Nam)
     format: wav
     output_dir: tmp/

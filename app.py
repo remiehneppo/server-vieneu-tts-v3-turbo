@@ -1,4 +1,5 @@
 import audioop
+import base64
 import io
 import json
 import math
@@ -19,10 +20,11 @@ from pydantic import BaseModel, Field
 
 
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "models"
-MODEL_ID = os.getenv("VIENEU_MODEL_ID", "pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF")
+MODEL_ID = os.getenv("VIENEU_MODEL_ID", "pnnbao-ump/VieNeu-TTS-v3-Turbo")
 MODEL_DIR = os.getenv("VIENEU_MODEL_DIR", str(DEFAULT_MODEL_DIR))
-MODEL_FILE = os.getenv("VIENEU_MODEL_FILE", "vieneu-tts-v2-turbo.gguf")
+MODEL_FILE = os.getenv("VIENEU_MODEL_FILE", "")
 DEVICE = os.getenv("VIENEU_DEVICE", "cpu")
+MODE = os.getenv("VIENEU_MODE", "v3turbo")
 N_GPU_LAYERS = int(os.getenv("VIENEU_N_GPU_LAYERS", "0"))
 THREADS = int(os.getenv("VIENEU_THREADS", str(max((os.cpu_count() or 2) - 1, 1))))
 N_CTX = int(os.getenv("VIENEU_N_CTX", "2048"))
@@ -34,6 +36,43 @@ USE_FAKE_ENGINE = os.getenv("VIENEU_FAKE", "false").lower() == "true"
 BENCHMARK_DIR = Path(os.getenv("VIENEU_BENCHMARK_DIR", "benchmarks"))
 BENCHMARK_LATEST_PATH = BENCHMARK_DIR / "latest.json"
 VOICE_PATH = Path(__file__).with_name("voices.json")
+
+def _clear_rocm_execstack() -> None:
+    try:
+        import sys
+        for base in sys.path:
+            site = Path(base)
+            if not site.is_dir() or "site-packages" not in str(site):
+                continue
+            for p in site.rglob("*.so*"):
+                if p.is_symlink() or not p.is_file():
+                    continue
+                data = p.read_bytes()[:4096]
+                if data[:4] != b"\x7fELF":
+                    continue
+                e_phoff = struct.unpack("<Q", data[32:40])[0]
+                e_phentsize, e_phnum = struct.unpack("<HH", data[54:58])
+                for i in range(e_phnum):
+                    off = e_phoff + i * e_phentsize
+                    p_type, p_flags = struct.unpack("<II", data[off : off + 8])
+                    if p_type == 0x6474E551 and (p_flags & 1):
+                        with open(p, "r+b") as f:
+                            f.seek(off + 4)
+                            f.write(struct.pack("<I", p_flags & ~1))
+    except Exception:
+        pass
+
+
+_clear_rocm_execstack()
+
+# On AMD ROCm, disable fused CUDA graph by default to prevent hipGraph multinomial issues
+if "VIENEU_FUSED_FRAME" not in os.environ:
+    try:
+        import torch
+        if getattr(torch.version, "hip", None) is not None:
+            os.environ["VIENEU_FUSED_FRAME"] = "0"
+    except Exception:
+        pass
 
 engine: Optional["TTSEngine"] = None
 last_benchmark: Optional[dict[str, Any]] = None
@@ -51,9 +90,11 @@ engine_lock = threading.Lock()
 
 
 class SpeechRequest(BaseModel):
-    model: str = Field(default="vieneu-v2-turbo")
+    model: str = Field(default="vieneu-v3-turbo")
     input: str
     voice: Optional[str] = None
+    ref_audio: Optional[str] = None
+    ref_audio_base64: Optional[str] = None
     response_format: str = Field(default="wav")
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
 
@@ -77,7 +118,13 @@ class BenchmarkRequest(BaseModel):
 class TTSEngine:
     sample_rate: int
 
-    def synthesize_pcm(self, text: str, voice: dict[str, Any], speed: float) -> bytes:
+    def synthesize_pcm(
+        self,
+        text: str,
+        voice: Optional[dict[str, Any]] = None,
+        speed: float = 1.0,
+        ref_audio: Optional[str] = None,
+    ) -> bytes:
         raise NotImplementedError
 
 
@@ -85,10 +132,17 @@ class FakeEngine(TTSEngine):
     def __init__(self, sample_rate: int = SAMPLE_RATE):
         self.sample_rate = sample_rate
 
-    def synthesize_pcm(self, text: str, voice: dict[str, Any], speed: float) -> bytes:
+    def synthesize_pcm(
+        self,
+        text: str,
+        voice: Optional[dict[str, Any]] = None,
+        speed: float = 1.0,
+        ref_audio: Optional[str] = None,
+    ) -> bytes:
         duration = max(0.25, min(2.0, len(text) / 24.0 / max(speed, 0.25)))
         frames = int(self.sample_rate * duration)
-        freq = 420 + (sum(ord(ch) for ch in voice["name"]) % 180)
+        v_name = voice["name"] if voice else "clone"
+        freq = 420 + (sum(ord(ch) for ch in v_name) % 180)
         samples = bytearray()
         for index in range(frames):
             value = int(9000 * math.sin(2 * math.pi * freq * index / self.sample_rate))
@@ -111,18 +165,15 @@ class VieNeuEngine(TTSEngine):
             ) from exc
 
         Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
-        mode = os.getenv("VIENEU_MODE", "turbo")
+        mode = os.getenv("VIENEU_MODE", MODE)
         attempts = [
-            {
-                "mode": mode,
-                "backbone_repo": MODEL_ID,
-                "backbone_filename": MODEL_FILE,
-                "device": DEVICE,
-            },
-            {"mode": mode, "backbone_repo": MODEL_ID, "backbone_filename": MODEL_FILE},
+            {"mode": mode, "backbone_repo": MODEL_ID, "device": DEVICE},
+            {"mode": mode, "backbone_repo": MODEL_ID},
             {"mode": mode},
             {},
         ]
+        if MODEL_FILE:
+            attempts.insert(0, {"mode": mode, "backbone_repo": MODEL_ID, "backbone_filename": MODEL_FILE, "device": DEVICE})
         last_error: Optional[Exception] = None
         for kwargs in attempts:
             try:
@@ -132,11 +183,32 @@ class VieNeuEngine(TTSEngine):
                 continue
         raise RuntimeError(f"Không khởi tạo được Vieneu SDK: {last_error}")
 
-    def synthesize_pcm(self, text: str, voice: dict[str, Any], speed: float) -> bytes:
-        sdk_voice = self._resolve_sdk_voice(voice)
-        audio = self._infer(text=text, voice=sdk_voice, speed=speed)
+    def synthesize_pcm(
+        self,
+        text: str,
+        voice: Optional[dict[str, Any]] = None,
+        speed: float = 1.0,
+        ref_audio: Optional[str] = None,
+    ) -> bytes:
+        if ref_audio:
+            audio = self._infer_clone(text=text, ref_audio=ref_audio, speed=speed)
+        else:
+            sdk_voice = self._resolve_sdk_voice(voice or resolve_voice(DEFAULT_VOICE))
+            audio = self._infer(text=text, voice=sdk_voice, speed=speed)
         wav_bytes = self._audio_to_wav_bytes(audio)
         return wav_to_pcm_24k_mono(wav_bytes)
+
+    def _infer_clone(self, text: str, ref_audio: str, speed: float) -> Any:
+        attempts = [
+            {"text": text, "ref_audio": ref_audio, "speed": speed},
+            {"text": text, "ref_audio": ref_audio},
+        ]
+        for kwargs in attempts:
+            try:
+                return self.tts.infer(**kwargs)
+            except TypeError:
+                continue
+        return self.tts.infer(text, ref_audio=ref_audio)
 
     def _resolve_sdk_voice(self, voice: dict[str, Any]) -> Any:
         sdk_voice = voice.get("sdk_voice") or voice.get("label") or voice["name"]
@@ -271,7 +343,7 @@ class ResourceSampler:
                 self.ram_values.append(float(self.process.memory_info().rss / 1024 / 1024))
             except Exception:
                 pass
-        gpu = sample_nvidia_gpu()
+        gpu = sample_gpu_metrics()
         if gpu:
             self.gpu_name = gpu["name"]
             self.gpu_utils.append(gpu["util"])
@@ -385,17 +457,70 @@ def array_to_pcm16(data: Any) -> bytes:
         return bytes(data)
 
 
-def synthesize(text: str, voice_name: Optional[str], fmt: str, speed: float) -> tuple[bytes, str, float, dict[str, Any]]:
+def _extract_reference_audio(
+    ref_audio: Optional[str] = None,
+    ref_audio_base64: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve reference audio from either a file path or base64 string.
+
+    Returns (effective_path, temp_file_to_cleanup).
+    """
+    if ref_audio_base64:
+        clean_b64 = (
+            ref_audio_base64.split(",", 1)[-1]
+            if ref_audio_base64.startswith("data:")
+            else ref_audio_base64
+        )
+        audio_data = base64.b64decode(clean_b64)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_data)
+            return tmp.name, tmp.name
+    if ref_audio and os.path.isfile(ref_audio):
+        return ref_audio, None
+    return None, None
+
+
+def synthesize(
+    text: str,
+    voice_name: Optional[str] = None,
+    fmt: str = "wav",
+    speed: float = 1.0,
+    ref_audio: Optional[str] = None,
+    ref_audio_base64: Optional[str] = None,
+) -> tuple[bytes, str, float, dict[str, Any]]:
     clean_text = validate_text(text)
-    voice = resolve_voice(voice_name)
     output_format = validate_format(fmt)
-    start = time.perf_counter()
-    with engine_lock:
-        pcm = get_engine().synthesize_pcm(clean_text, voice, speed)
-    synthesis_ms = (time.perf_counter() - start) * 1000
+    effective_ref_audio, temp_ref_path = _extract_reference_audio(ref_audio, ref_audio_base64)
+
+    if effective_ref_audio:
+        voice_info = {"id": "custom_clone", "name": "Custom Clone", "label": "Custom Voice Clone"}
+    else:
+        voice_info = resolve_voice(voice_name)
+
+    try:
+        start = time.perf_counter()
+        with engine_lock:
+            engine_inst = get_engine()
+            if effective_ref_audio:
+                pcm = engine_inst.synthesize_pcm(
+                    clean_text,
+                    voice=voice_info,
+                    speed=speed,
+                    ref_audio=effective_ref_audio,
+                )
+            else:
+                pcm = engine_inst.synthesize_pcm(clean_text, voice_info, speed)
+        synthesis_ms = (time.perf_counter() - start) * 1000
+    finally:
+        if temp_ref_path:
+            try:
+                os.unlink(temp_ref_path)
+            except OSError:
+                pass
+
     if output_format == "wav":
-        return pcm_to_wav(pcm), "audio/wav", synthesis_ms, voice
-    return pcm, "audio/pcm", synthesis_ms, voice
+        return pcm_to_wav(pcm), "audio/wav", synthesis_ms, voice_info
+    return pcm, "audio/pcm", synthesis_ms, voice_info
 
 
 def audio_duration_sec(pcm: bytes) -> float:
@@ -406,7 +531,7 @@ def average(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def sample_nvidia_gpu() -> Optional[dict[str, Any]]:
+def sample_gpu_metrics() -> Optional[dict[str, Any]]:
     try:
         output = subprocess.check_output(
             [
@@ -418,15 +543,34 @@ def sample_nvidia_gpu() -> Optional[dict[str, Any]]:
             stderr=subprocess.DEVNULL,
             timeout=1,
         )
+        first = output.strip().splitlines()[0] if output.strip() else ""
+        if first:
+            parts = [part.strip() for part in first.split(",")]
+            if len(parts) >= 3:
+                return {"name": parts[0], "util": float(parts[1]), "vram": float(parts[2])}
     except Exception:
-        return None
-    first = output.strip().splitlines()[0] if output.strip() else ""
-    if not first:
-        return None
-    parts = [part.strip() for part in first.split(",")]
-    if len(parts) < 3:
-        return None
-    return {"name": parts[0], "util": float(parts[1]), "vram": float(parts[2])}
+        pass
+
+    try:
+        rocm_cmd = "/opt/rocm/bin/rocm-smi" if Path("/opt/rocm/bin/rocm-smi").exists() else "rocm-smi"
+        output = subprocess.check_output(
+            [rocm_cmd, "--showuse", "--showmeminfo", "vram", "--json"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=1,
+        )
+        data = json.loads(output)
+        card = next(iter(data.values()))
+        util = float(card.get("GPU use (%)", 0))
+        vram_bytes = float(card.get("VRAM Total Used Memory (B)", 0))
+        return {"name": "AMD Radeon GPU (ROCm)", "util": util, "vram": round(vram_bytes / (1024 * 1024), 1)}
+    except Exception:
+        pass
+
+    return None
+
+
+sample_nvidia_gpu = sample_gpu_metrics
 
 
 def benchmark_cases(request: BenchmarkRequest) -> list[str]:
@@ -522,10 +666,12 @@ def voices() -> dict[str, Any]:
 def openai_speech(request: SpeechRequest, authorization: Optional[str] = Header(default=None)) -> Response:
     require_auth(authorization)
     content, media_type, _synthesis_ms, _voice = synthesize(
-        request.input,
-        request.voice,
-        request.response_format,
-        request.speed,
+        text=request.input,
+        voice_name=request.voice,
+        fmt=request.response_format,
+        speed=request.speed,
+        ref_audio=request.ref_audio,
+        ref_audio_base64=request.ref_audio_base64,
     )
     return Response(content=content, media_type=media_type)
 

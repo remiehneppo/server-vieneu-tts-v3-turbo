@@ -1,6 +1,6 @@
 # VieNeu TTS Server
 
-Local FastAPI service for Xiaozhi TTS using VieNeu-TTS v2 Turbo GGUF through the
+Local FastAPI service for Xiaozhi TTS using VieNeu-TTS v3 Turbo (`pnnbao-ump/VieNeu-TTS-v3-Turbo`) through the
 `vieneu` SDK. It exposes both OpenAI-compatible speech synthesis and the
 `index_stream` PCM endpoint expected by `xiaozhi-server`.
 
@@ -50,8 +50,16 @@ host first.
 
 ## Local Python
 
+GPU:
+
 ```bash
-cd main/vieneu-tts-server
+./scripts/install_gpu_local.sh
+./scripts/start_gpu_local.sh
+```
+
+CPU:
+
+```bash
 ./scripts/install.sh
 ./scripts/start.sh
 ```
@@ -60,16 +68,13 @@ Useful environment variables:
 
 | Variable | Default |
 | --- | --- |
-| `VIENEU_MODEL_ID` | `pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF` |
-| `VIENEU_MODE` | `turbo` |
+| `VIENEU_MODEL_ID` | `pnnbao-ump/VieNeu-TTS-v3-Turbo` |
+| `VIENEU_MODE` | `v3turbo` |
 | `VIENEU_MODEL_DIR` | `./models` locally, `/models` in Docker |
 | `HF_HOME` | unset locally, `/models` in Docker |
 | `HUGGINGFACE_HUB_CACHE` | unset locally, `/models/hub` in Docker |
 | `VIENEU_DEFAULT_VOICE` | `Thục Đoan (Nữ - Miền Nam)` |
-| `VIENEU_DEVICE` | `cpu` |
-| `VIENEU_N_GPU_LAYERS` | `0` |
-| `VIENEU_THREADS` | CPU count minus one |
-| `VIENEU_N_CTX` | `2048` |
+| `VIENEU_DEVICE` | `cuda` (if GPU available) or `cpu` |
 | `VIENEU_FAKE` | `false` |
 | `TTS_API_KEY` | empty |
 | `PORT` | `8004` |
@@ -87,7 +92,7 @@ OpenAI-compatible provider:
 ```yaml
 type: openai
 api_url: http://vieneu-tts-server:8004/v1/audio/speech
-model: vieneu-v2-turbo
+model: vieneu-v3-turbo
 voice: Thục Đoan (Nữ - Miền Nam)
 format: wav
 ```

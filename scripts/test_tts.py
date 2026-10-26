@@ -38,7 +38,7 @@ def synthesize(
     speed: float = 1.0,
 ) -> tuple[bytes, str]:
     payload = {
-        "model": "vieneu-v2-turbo",
+        "model": "vieneu-v3-turbo",
         "input": text,
         "voice": voice,
         "response_format": output_format,
